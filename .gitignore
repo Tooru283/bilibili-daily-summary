@@ -1,0 +1,22 @@
+# Cookie 文件（包含敏感信息）
+cookie.txt
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 日志
+logs/
+*.log
+
+# 统计缓存
+.stats_*.json
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
