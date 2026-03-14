@@ -129,86 +129,136 @@ python weekly_summary.py 2026-W10 # 生成指定周总结
 
 ## ⏰ 定时任务设置
 
-### macOS - 使用 crontab
+### macOS - 使用 LaunchAgent（推荐）✨
+
+LaunchAgent 支持**即使电脑休眠也会自动唤醒运行**，无需电脑始终开着。
+
+#### 1. 创建包装脚本
+
+项目中已包含 `run_summary.sh`，这是一个自动激活虚拟环境并运行脚本的包装脚本：
 
 ```bash
-# 编辑定时任务
-crontab -e
+# 查看脚本内容
+cat run_summary.sh
+
+# 确保脚本可执行
+chmod +x run_summary.sh
 ```
 
-添加以下行（每天 23:55 运行）：
-
-```cron
-55 23 * * * cd /path/to/your/folder && /path/to/your/folder/.venv/bin/python daily_summary.py >> /path/to/your/folder/logs/cron.log 2>&1
-```
-
-**注意：** 将 `/path/to/your/folder` 替换为实际路径。
-
-创建日志目录：
-
-```bash
-mkdir -p /path/to/your/folder/logs
-```
-
-验证任务：
-
-```bash
-crontab -l
-```
-
-### macOS - 使用 launchd（推荐）
+#### 2. 创建 LaunchAgent 配置
 
 创建配置文件：
 
 ```bash
-nano ~/Library/LaunchAgents/com.bilibili-summary.plist
-```
-
-```xml
+cat > ~/Library/LaunchAgents/com.user.bilisummary.plist << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.bilibili-summary</string>
-    
+    <string>com.user.bilisummary</string>
+
     <key>ProgramArguments</key>
     <array>
-        <string>/path/to/your/folder/.venv/bin/python</string>
-        <string>/path/to/your/folder/daily_summary.py</string>
+        <string>/bin/bash</string>
+        <string>/Users/moca/Work/Python/Blisummary/run_summary.sh</string>
     </array>
-    
-    <key>WorkingDirectory</key>
-    <string>/path/to/your/folder</string>
-    
+
+    <!-- 定时配置：每天23:00运行 -->
     <key>StartCalendarInterval</key>
     <dict>
         <key>Hour</key>
         <integer>23</integer>
         <key>Minute</key>
-        <integer>55</integer>
+        <integer>0</integer>
     </dict>
-    
+
+    <!-- 同时在启动时也运行一次 -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- 标准输出/错误日志 -->
     <key>StandardOutPath</key>
-    <string>/path/to/your/folder/logs/bilibili.log</string>
-    
+    <string>/tmp/bilisummary_out.log</string>
     <key>StandardErrorPath</key>
-    <string>/path/to/your/folder/logs/bilibili-error.log</string>
+    <string>/tmp/bilisummary_err.log</string>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/moca/Work/Python/Blisummary</string>
 </dict>
 </plist>
+EOF
 ```
 
-加载任务：
+**注意：** 将路径修改为你的实际项目目录。
+
+#### 3. 加载并启动任务
 
 ```bash
-launchctl load ~/Library/LaunchAgents/com.bilibili-summary.plist
+# 加载 LaunchAgent
+launchctl load ~/Library/LaunchAgents/com.user.bilisummary.plist
+
+# 验证已加载
+launchctl list | grep bilisummary
+```
+
+#### 4. 管理命令
+
+```bash
+# 手动触发一次
+launchctl start com.user.bilisummary
+
+# 暂停运行
+launchctl unload ~/Library/LaunchAgents/com.user.bilisummary.plist
+
+# 重新启用
+launchctl load ~/Library/LaunchAgents/com.user.bilisummary.plist
+
+# 查看日志
+tail -50 /tmp/bilisummary.log
+tail -20 /tmp/bilisummary_err.log  # 查看错误日志
+```
+
+#### 5. 修改运行时间
+
+编辑配置文件中的 `StartCalendarInterval` 部分：
+
+```xml
+<key>StartCalendarInterval</key>
+<dict>
+    <key>Hour</key>
+    <integer>23</integer>     <!-- 改为你想要的小时（0-23）-->
+    <key>Minute</key>
+    <integer>0</integer>      <!-- 改为你想要的分钟（0-59）-->
+</dict>
+```
+
+修改后需要重新加载：
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.user.bilisummary.plist
+launchctl load ~/Library/LaunchAgents/com.user.bilisummary.plist
+```
+
+### macOS - 使用 crontab（备选）
+
+如果不想用 LaunchAgent，也可以用 crontab：
+
+```bash
+crontab -e
+```
+
+添加以下行（每天 23:00 运行）：
+
+```cron
+0 23 * * * cd /Users/moca/Work/Python/Blisummary && source .venv/bin/activate && python daily_summary.py >> /tmp/bilisummary.log 2>&1
 ```
 
 ### Windows - 使用任务计划程序
 
 1. 打开「任务计划程序」
 2. 创建基本任务
-3. 设置触发器：每天 23:55
+3. 设置触发器：每天 23:00
 4. 设置操作：启动程序
    - 程序：`C:\path\to\your\folder\.venv\Scripts\python.exe`
    - 参数：`daily_summary.py`

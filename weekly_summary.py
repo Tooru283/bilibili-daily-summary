@@ -25,12 +25,12 @@ WEEKLY_FOLDER  = os.path.join(SUMMARY_FOLDER, "周总结")
 
 # 健康标准基准
 HEALTH = {
-    "daily_time_sec":      2 * 3600,   # 每日时长上限
-    "daily_videos":        30,          # 每日视频数上限
-    "deep_watch_ratio":    0.30,        # 深度观看占比目标
-    "fragment_ratio":      0.50,        # 碎片视频占比上限
-    "weekly_score":        70,          # 周评分目标
-    "avg_completion":      40.0,        # 平均完成度目标 %
+    "daily_time_sec":      2 * 3600,   # 每日时长上限（理想值；2.5h 以上警告）
+    "daily_videos":        60,          # 每日视频数上限（与 daily_summary 对齐）
+    "deep_watch_ratio":    0.20,        # 深度观看占比目标（混合内容，从 30% 降至 20%）
+    "fragment_ratio":      0.40,        # 碎片视频占比上限（从 50% 收紧至 40%）
+    "weekly_score":        60,          # 周评分目标（可达目标；70 为理想上限）
+    "avg_completion":      20.0,        # 平均完成度目标 %（混合内容现实值）
 }
 
 # ─── 周边界计算 ────────────────────────────────────────────────────────────────

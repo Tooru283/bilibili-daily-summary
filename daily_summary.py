@@ -7,7 +7,7 @@ from collections import defaultdict
 import browser_cookie3
 
 # 保存路径
-SUMMARY_FOLDER = "填写你的保存路径"
+SUMMARY_FOLDER = "/Users/moca/Documents/笔记/研究生/Blisummary"
 
 # 获取脚本所在目录
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -523,9 +523,9 @@ def generate_goal_tracking(stats, video_stats, content_score, advanced_score):
     """生成目标管理追踪"""
     lines = ["## 🎯 每日目标追踪", ""]
     
-    video_goal = 30
+    video_goal = 60
     time_goal = 3 * 3600
-    deep_goal = 2
+    deep_goal = 6
     
     total_videos = stats["total_videos"]
     total_time = stats["total_watch_time"]
@@ -832,7 +832,7 @@ def generate_summary_with_claude(stats_text, classification_text, quality_text):
 """
     
     result = subprocess.run(
-        ["claude", "-p", prompt],
+        ["/opt/homebrew/bin/claude", "-p", prompt],
         capture_output=True,
         text=True
     )
