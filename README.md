@@ -42,7 +42,7 @@ source .venv/bin/activate  # macOS/Linux
 ### 3. 安装依赖
 
 ```bash
-pip install requests
+pip install requests browser-cookie3
 ```
 
 ### 4. 安装 Claude Code CLI
@@ -61,24 +61,13 @@ claude login
 
 ## ⚙️ 配置说明
 
-### 1. 获取 B站 Cookie
+### 1. 登录 B站
 
-1. 打开浏览器，登录 [B站](https://www.bilibili.com)
-2. 按 `F12` 或 `Cmd + Option + I` 打开开发者工具
-3. 切换到 **Network** 标签
-4. 刷新页面，点击任意一个请求
-5. 在 **Headers** 中找到 `Cookie`，复制完整内容
+直接在浏览器（Chrome / Safari / Firefox）中登录 B站即可。脚本会通过 `browser-cookie3` **自动读取**浏览器中的 Cookie，无需手动复制。
 
-### 2. 创建 cookie.txt
+> **注意：** 首次运行时，macOS 可能会弹出权限提示，需要允许访问 Safari/Chrome 的 Cookie 数据库。
 
-在代码同目录下创建 `cookie.txt` 文件，将复制的 Cookie 粘贴进去：
-
-```bash
-touch cookie.txt
-# 用编辑器打开，粘贴 Cookie 内容
-```
-
-### 3. 修改保存路径
+### 2. 修改保存路径
 
 编辑 `daily_summary.py` 第 9 行，修改为你的 Obsidian vault 路径：
 
@@ -274,11 +263,13 @@ else:                  # 短视频 < 3分钟
 
 ## ❓ 常见问题
 
-### Q: 提示「账号未登录」
+### Q: 提示「未能从浏览器获取 B站 Cookie」
 
-**原因：** Cookie 已过期
+**原因：** 浏览器未登录 B站，或脚本没有权限访问浏览器 Cookie
 
-**解决：** 重新从浏览器获取 Cookie，更新 `cookie.txt`
+**解决：**
+1. 确认已在 Chrome / Safari / Firefox 中登录 B站
+2. macOS 系统设置 → 隐私与安全性 → 完全磁盘访问权限，添加终端或 Python
 
 ### Q: 提示「请求失败」
 
@@ -349,6 +340,10 @@ LIMIT 5
 ---
 
 ## 📝 更新日志
+
+### v1.1.0
+- 改用 `browser-cookie3` 自动从浏览器读取 Cookie，无需手动维护 `cookie.txt`
+- 支持 Chrome、Safari、Firefox 自动检测
 
 ### v1.0.0
 - 初始版本
