@@ -4,6 +4,7 @@ import os
 import json
 from datetime import datetime, timedelta
 from collections import defaultdict
+import browser_cookie3
 
 # 保存路径
 SUMMARY_FOLDER = "填写你的保存路径"
@@ -11,25 +12,35 @@ SUMMARY_FOLDER = "填写你的保存路径"
 # 获取脚本所在目录
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# 构建 cookie.txt 的绝对路径
-COOKIE_FILE = os.path.join(SCRIPT_DIR, "cookie.txt")
 
-# 使用
-with open(COOKIE_FILE, "r") as f:
-    cookie = f.read().strip()
+def get_bilibili_cookies():
+    """从浏览器自动获取 B站 Cookie，依次尝试 Chrome、Safari、Firefox"""
+    for loader, name in [
+        (browser_cookie3.chrome, "Chrome"),
+        (browser_cookie3.safari, "Safari"),
+        (browser_cookie3.firefox, "Firefox"),
+    ]:
+        try:
+            jar = loader(domain_name=".bilibili.com")
+            # 检查是否包含必要的 SESSDATA
+            if any(c.name == "SESSDATA" for c in jar):
+                print(f"   ✅ 已从 {name} 读取 B站 Cookie")
+                return jar
+        except Exception:
+            continue
+    raise RuntimeError("未能从浏览器获取 B站 Cookie，请确保已在浏览器中登录 B站")
 
-def get_bilibili_history(cookie, pages=5):
+def get_bilibili_history(cookies, pages=5):
     """获取B站浏览历史记录"""
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Cookie': cookie,
         'Referer': 'https://www.bilibili.com'
     }
 
     all_history = []
     for page in range(1, pages + 1):
         url = f'https://api.bilibili.com/x/v2/history?pn={page}&ps=30'
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, cookies=cookies)
         data = response.json()
 
         if data['code'] != 0:
@@ -238,14 +249,28 @@ def calculate_content_quality_score(video_stats, quality_scores):
     }
 
 
-def calculate_advanced_score(video_stats, behavior_metrics):
+def calculate_advanced_score(video_stats, behavior_metrics, classified):
     """计算高级评分"""
     time_efficiency = min(100, behavior_metrics['quality_time_ratio'] * 200)
     behavior_health = max(0, 100 - video_stats['short_video']['fragment_count'] * 1.5)
-    
+
+    # 学习总量得分：质量内容总时长（长+中视频），每30分钟+20分，上限100
+    quality_total_minutes = (
+        video_stats['long_video']['total_time'] +
+        video_stats['medium_video']['total_time']
+    ) / 60
+    learning_volume_score = min(100, quality_total_minutes / 30 * 20)
+
+    # 深度学习奖励：长视频完成度≥80%，每个+10分，上限50（归一化到100）
+    deep_long_count = sum(1 for v in classified['long'] if v.get('watch_percent', 0) >= 80)
+    deep_learning_bonus = min(50, deep_long_count * 10)
+
     return {
         'time_efficiency': round(time_efficiency, 1),
         'behavior_health': round(behavior_health, 1),
+        'learning_volume_score': round(learning_volume_score, 1),
+        'deep_learning_bonus': round(deep_learning_bonus, 1),
+        'deep_long_count': deep_long_count,
     }
 
 
@@ -535,14 +560,18 @@ def generate_goal_tracking(stats, video_stats, content_score, advanced_score):
     lines.append("")
     lines.append("| 维度 | 得分 | 权重 | 说明 |")
     lines.append("|------|------|------|------|")
-    lines.append(f"| 时间效率 | {advanced_score['time_efficiency']} | 30% | 高质量时间占比 |")
-    lines.append(f"| 行为健康 | {advanced_score['behavior_health']} | 30% | 碎片化控制 |")
-    lines.append(f"| 内容质量 | {content_score['total']} | 40% | 多维质量评分 |")
-    
+    lines.append(f"| 时间效率 | {advanced_score['time_efficiency']} | 20% | 高质量时间占比 |")
+    lines.append(f"| 行为健康 | {advanced_score['behavior_health']} | 20% | 碎片化控制 |")
+    lines.append(f"| 内容质量 | {content_score['total']} | 30% | 多维质量评分 |")
+    lines.append(f"| 学习总量 | {advanced_score['learning_volume_score']} | 20% | 质量内容时长（长+中视频） |")
+    lines.append(f"| 深度学习 | {advanced_score['deep_learning_bonus']*2} | 10% | 长视频≥80%完成（{advanced_score['deep_long_count']}个）|")
+
     total_score = round(
-        advanced_score['time_efficiency'] * 0.3 +
-        advanced_score['behavior_health'] * 0.3 +
-        content_score['total'] * 0.4
+        advanced_score['time_efficiency'] * 0.2 +
+        advanced_score['behavior_health'] * 0.2 +
+        content_score['total'] * 0.3 +
+        advanced_score['learning_volume_score'] * 0.2 +
+        advanced_score['deep_learning_bonus'] * 2 * 0.1
     )
     
     lines.append("")
@@ -864,7 +893,7 @@ def generate_summary_for_date(history_list, target_date, prev_day_stats=None):
     quality_scores = calculate_quality_scores(classified, video_stats)
     behavior_metrics = calculate_behavior_metrics(day_history, video_stats)
     content_score = calculate_content_quality_score(video_stats, quality_scores)
-    advanced_score = calculate_advanced_score(video_stats, behavior_metrics)
+    advanced_score = calculate_advanced_score(video_stats, behavior_metrics, classified)
     
     # 生成各部分内容
     stats_text = format_statistics(stats)
@@ -995,13 +1024,12 @@ content_types:
 
 def main():
     """主函数"""
-    # 读取 Cookie
-    with open(COOKIE_FILE, "r") as f:
-        cookie = f.read().strip()
-    
+    # 自动从浏览器读取 Cookie
+    cookies = get_bilibili_cookies()
+
     # 获取历史记录（多获取几页以确保包含昨天的数据）
     print("📥 获取B站历史记录...")
-    history = get_bilibili_history(cookie, pages=8)
+    history = get_bilibili_history(cookies, pages=8)
     
     if not history:
         print("❌ 获取历史记录失败")
