@@ -1,9 +1,10 @@
-# B站每日观看总结生成器
+# B站观看总结生成器
 
-自动获取你的B站观看历史，生成结构化的每日总结报告，并通过 Claude AI 进行智能分析。
+自动获取你的B站观看历史，生成结构化的**每日 + 每周**总结报告，并通过 Claude AI 进行智能分析。
 
 ## ✨ 功能特点
 
+### 每日总结（`daily_summary.py`）
 - 📊 **多维度统计** - 按视频时长、分区、UP主分类统计
 - ⭐ **质量评分** - 自动评估观看质量（知识增量、思考深度等）
 - 🎯 **目标追踪** - 设定每日目标，追踪完成情况
@@ -11,6 +12,13 @@
 - 🕐 **时间热力图** - 可视化你的观看时段分布
 - 🤖 **AI 总结** - 调用 Claude 生成智能分析和建议
 - 📝 **Obsidian 适配** - 生成带有 frontmatter 的 Markdown 文件，支持 Dataview 查询
+
+### 每周总结（`weekly_summary.py`）
+- 📅 **自动识别周边界** - 按 ISO 周自动计算周一至周日
+- 📊 **周汇总统计** - 自动聚合全周时长、视频数、深度观看等指标
+- 🔍 **问题自动检测** - 对比健康基准，自动标记超时、碎片化、评分下滑等问题
+- 💡 **分层建议生成** - 根据检测到的问题自动生成紧急/中期/长期行动建议
+- 📁 **文件自动归档** - 周结束后将日报移入对应周文件夹，保持目录整洁
 
 ---
 
@@ -27,8 +35,8 @@
 ### 1. 克隆或下载代码
 
 ```bash
-cd /path/to/your/folder
-# 将 daily_summary.py 放到此目录
+git clone https://github.com/Tooru283/bilibili-daily-summary.git
+cd bilibili-daily-summary
 ```
 
 ### 2. 创建虚拟环境（推荐）
@@ -84,12 +92,21 @@ SUMMARY_FOLDER = "/path/to/your/obsidian/vault/bilibili"
 
 ## 📖 使用方法
 
-### 手动运行
+### 每日总结
 
 ```bash
-cd /path/to/your/folder
 python daily_summary.py
 ```
+
+### 每周总结
+
+```bash
+python weekly_summary.py          # 生成上周总结（默认，每周一运行）
+python weekly_summary.py 0        # 生成本周（当前不完整）总结
+python weekly_summary.py 2026-W10 # 生成指定周总结
+```
+
+> **推荐工作流：** 每天晚上 23:55 自动运行 `daily_summary.py`，每周一早上手动或自动运行 `weekly_summary.py`。
 
 ### 运行输出
 
@@ -203,14 +220,20 @@ launchctl load ~/Library/LaunchAgents/com.bilibili-summary.plist
 
 ```
 bilibili/
-├── 2026-03-04-B站总结.md
-├── 2026-03-05-B站总结.md
-├── .stats_2026-03-04.json    # 统计数据缓存
-└── .stats_2026-03-05.json
+├── 2026-03-10-B站总结.md         # 本周日报（周结束后自动归档）
+├── 2026-03-11-B站总结.md
+├── .stats_2026-03-10.json        # 统计数据缓存（供周总结读取）
+├── .stats_2026-03-11.json
+└── 周总结/
+    └── W10(2026.3.4-3.8)/
+        ├── 2026-03-04-B站总结.md # 已归档的日报
+        ├── 2026-03-05-B站总结.md
+        └── 2026-W10-周总结.md    # 周总结文件
 ```
 
 ### 总结文件内容
 
+**每日总结（`daily_summary.py`）**
 - **Frontmatter** - 包含日期、标签、统计数据（支持 Dataview）
 - **目标追踪** - 视频数量、时长、深度观看目标完成情况
 - **与昨日对比** - 各项指标变化趋势
@@ -224,11 +247,20 @@ bilibili/
 - **反思日记** - 预留的反思模板
 - **Dataview 查询** - 本周、月度统计查询模板
 
+**每周总结（`weekly_summary.py`）**
+- **周汇总数据** - 总时长、视频数、深度观看、周均分
+- **日均对比表** - 每天数据一览及健康状态
+- **数据对标** - 与健康基准的差距分析
+- **AI 总结** - Claude 生成的周分析
+- **问题分析** - 自动检测并按严重程度（🔴🟡）分级
+- **改进建议** - 紧急/中期/长期三层行动建议
+- **下周目标** - 自动生成下周行动计划
+
 ---
 
 ## 🔧 自定义配置
 
-### 修改目标值
+### 修改每日目标值
 
 编辑 `daily_summary.py` 中的 `generate_goal_tracking` 函数：
 
@@ -236,6 +268,21 @@ bilibili/
 video_goal = 30       # 每日最大视频数
 time_goal = 3 * 3600  # 每日最大时长（秒）
 deep_goal = 2         # 每日最少深度观看数
+```
+
+### 修改每周健康基准
+
+编辑 `weekly_summary.py` 顶部的 `HEALTH` 字典：
+
+```python
+HEALTH = {
+    "daily_time_sec":   2 * 3600,  # 每日时长上限（秒）
+    "daily_videos":     30,         # 每日视频数上限
+    "deep_watch_ratio": 0.30,       # 深度观看占比目标
+    "fragment_ratio":   0.50,       # 碎片视频占比上限
+    "weekly_score":     70,         # 周评分目标
+    "avg_completion":   40.0,       # 平均完成度目标 %
+}
 ```
 
 ### 修改获取页数
@@ -340,6 +387,10 @@ LIMIT 5
 ---
 
 ## 📝 更新日志
+
+### v1.2.0
+- 新增 `weekly_summary.py` 每周总结生成器
+- 支持自动识别周边界、问题检测、分层建议、文件归档
 
 ### v1.1.0
 - 改用 `browser-cookie3` 自动从浏览器读取 Cookie，无需手动维护 `cookie.txt`
