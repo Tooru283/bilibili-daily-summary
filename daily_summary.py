@@ -523,9 +523,10 @@ def generate_goal_tracking(stats, video_stats, content_score, advanced_score):
     """生成目标管理追踪"""
     lines = ["## 🎯 每日目标追踪", ""]
     
-    video_goal = 60
-    time_goal = 3 * 3600
-    deep_goal = 6
+    # 基准来自 03-04~03-15 实测均值：视频108个 / 时长3.69h / 深度观看13个
+    video_goal = 100           # 均值108，100是有挑战性但可达的目标
+    time_goal  = int(4 * 3600) # 均值3.69h，4h 为日常警戒线（学习+娱乐混合）
+    deep_goal  = 10            # 均值13，10个深度观看是较合理目标
     
     total_videos = stats["total_videos"]
     total_time = stats["total_watch_time"]
@@ -614,10 +615,10 @@ def generate_tags(stats, video_stats, behavior_metrics):
     """生成智能标签"""
     tags = ["bilibili", "每日总结"]
     
-    if stats["total_watch_time"] > 2 * 3600:
+    if stats["total_watch_time"] > 5 * 3600:   # 5h+ 才算真正长时间（均值3.69h）
         tags.append("长时间浏览")
     
-    if behavior_metrics['avg_completion'] < 15:
+    if behavior_metrics['avg_completion'] < 8:  # 均值12.2%，<8% 才是真正碎片化
         tags.append("碎片化警告")
     
     if stats["categories"]:
@@ -626,7 +627,7 @@ def generate_tags(stats, video_stats, behavior_metrics):
         if weight > 30:
             tags.append(f"{top_category}偏好")
     
-    if stats["deep_watch_count"] >= 3:
+    if stats["deep_watch_count"] >= 10:  # 均值13，>=10 才算真正达标
         tags.append("深度观看达标")
     
     if behavior_metrics['quality_time_ratio'] > 0.5:
@@ -660,17 +661,17 @@ def generate_reflection_template(stats, video_stats, classified):
     lines.append("")
     
     lines.append("### 需要改进的地方")
-    if fragment_count > 10:
+    if fragment_count > 40:    # 均值43，>40 才值得在反思中点出
         lines.append(f"- 碎片化浏览严重（{fragment_count}个视频<1分钟）")
-    if stats["total_watch_time"] > 3 * 3600:
+    if stats["total_watch_time"] > 5 * 3600:   # 5h+ 才属于真正需要反思的超长
         lines.append(f"- 总时长过长（{format_duration(stats['total_watch_time'])}）")
     lines.append("- _（分析不足之处）_")
     lines.append("")
     
     lines.append("### 明天行动计划")
-    lines.append("1. 设定：最多点开30个视频")
+    lines.append("1. 设定：视频数量控制在100个以内")
     lines.append("2. 策略：长视频先看简介和弹幕，决定是否值得投入")
-    lines.append("3. 时间管理：_（填写具体计划）_")
+    lines.append("3. 时间管理：观看总时长控制在 4 小时以内")
     lines.append("")
     
     return "\n".join(lines)

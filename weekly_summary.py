@@ -20,17 +20,19 @@ from pathlib import Path
 
 # ─── 配置 ─────────────────────────────────────────────────────────────────────
 
-SUMMARY_FOLDER = "编辑路径"
+SUMMARY_FOLDER = "/Users/moca/Documents/笔记/研究生/Blisummary"
 WEEKLY_FOLDER  = os.path.join(SUMMARY_FOLDER, "周总结")
 
-# 健康标准基准
+# 健康标准基准（学习+娱乐混合场景）
 HEALTH = {
-    "daily_time_sec":      2 * 3600,   # 每日时长上限（理想值；2.5h 以上警告）
-    "daily_videos":        60,          # 每日视频数上限（与 daily_summary 对齐）
-    "deep_watch_ratio":    0.20,        # 深度观看占比目标（混合内容，从 30% 降至 20%）
-    "fragment_ratio":      0.40,        # 碎片视频占比上限（从 50% 收紧至 40%）
-    "weekly_score":        60,          # 周评分目标（可达目标；70 为理想上限）
-    "avg_completion":      20.0,        # 平均完成度目标 %（混合内容现实值）
+    "daily_time_sec":      int(3.5 * 3600),  # 每日时长基线 3.5h（学习视频本身时长长）
+    "daily_warn_sec":      int(4.5 * 3600),  # 警告线 4.5h
+    "daily_severe_sec":    int(5.5 * 3600),  # 严重超标线 5.5h
+    "daily_videos":        60,               # 每日视频数上限
+    "deep_watch_ratio":    0.30,             # 深度观看占比目标（学习内容应达 30%）
+    "fragment_ratio":      0.45,             # 碎片视频占比上限（娱乐短视频夹杂属正常）
+    "weekly_score":        65,               # 周评分目标
+    "avg_completion":      28.0,             # 平均完成度目标 %（学习视频完成度高）
 }
 
 # ─── 周边界计算 ────────────────────────────────────────────────────────────────
@@ -130,12 +132,12 @@ def analyze_problems(agg: dict, day_stats: list[dict]) -> list[dict]:
     problems = []
 
     # 1. 时间管理
-    over_days = [d for d in day_stats if d["total_watch_time"] > HEALTH["daily_time_sec"]]
-    severe_days = [d for d in over_days if d["total_watch_time"] > 3 * 3600]
+    over_days = [d for d in day_stats if d["total_watch_time"] > HEALTH["daily_warn_sec"]]
+    severe_days = [d for d in day_stats if d["total_watch_time"] > HEALTH["daily_severe_sec"]]
     if severe_days:
         details = [
-            f"{d['date']} 观看 {d['total_watch_time']/3600:.1f}h（超标 "
-            f"{(d['total_watch_time'] - HEALTH['daily_time_sec'])/3600:.1f}h）"
+            f"{d['date']} 观看 {d['total_watch_time']/3600:.1f}h（超严重线 "
+            f"{(d['total_watch_time'] - HEALTH['daily_severe_sec'])/3600:.1f}h）"
             for d in severe_days
         ]
         worst = max(severe_days, key=lambda d: d["total_watch_time"])
@@ -146,7 +148,7 @@ def analyze_problems(agg: dict, day_stats: list[dict]) -> list[dict]:
         problems.append({"title": "严重的时间管理问题", "level": "🔴", "details": details})
     elif over_days:
         details = [
-            f"{d['date']} 观看 {d['total_watch_time']/3600:.1f}h，超过每日 2h 上限"
+            f"{d['date']} 观看 {d['total_watch_time']/3600:.1f}h，超过警告线 {HEALTH['daily_warn_sec']//3600}h"
             for d in over_days
         ]
         problems.append({"title": "时间管理偏超标", "level": "🟡", "details": details})
@@ -198,7 +200,7 @@ def generate_suggestions(agg: dict, problems: list[dict]) -> dict:
 
     if "严重的时间管理问题" in problem_titles or "时间管理偏超标" in problem_titles:
         urgent += [
-            f"设置每日观看时长上限：工作日 ≤1.5h，休息日 ≤2.5h",
+            f"设置每日观看时长上限：工作日 ≤3h，休息日 ≤4h（含学习内容）",
             f"每日视频点击数控制在 ≤{HEALTH['daily_videos']} 个",
             "实施「稍后再看」机制，发现兴趣视频先加入列表，固定时段集中观看",
         ]
@@ -237,9 +239,9 @@ def fmt_dur(seconds: int) -> str:
 def day_status(d: dict) -> str:
     t = d["total_watch_time"]
     f = d["fragment_count"] / max(d["total_videos"], 1)
-    if t > 4 * 3600 or f > 0.8:
+    if t > HEALTH["daily_severe_sec"] or f > 0.8:
         return "🔴 严重超标"
-    if t > 2 * 3600 or f > 0.5:
+    if t > HEALTH["daily_warn_sec"] or f > 0.6:
         return "⚠️ 偏超标"
     if d["score"] >= 65:
         return "✅ 良好"
@@ -287,7 +289,7 @@ def build_markdown(week_number: int, monday: date, sunday: date,
         "|------|------|------|",
         f"| **总观看时长** | {agg['total_time']:,} 秒（{agg['total_time']/3600:.1f} 小时） | {time_eval} |",
         f"| **总视频数** | {agg['total_videos']} 个 | {video_eval} |",
-        f"| **平均每日时长** | {avg_h:.2f} 小时 | {'❌ 过长' if avg_h > 3 else ('⚠️ 略长' if avg_h > 2 else '✅')} |",
+        f"| **平均每日时长** | {avg_h:.2f} 小时 | {'❌ 过长' if avg_h > HEALTH['daily_severe_sec']/3600 else ('⚠️ 略长' if avg_h > HEALTH['daily_warn_sec']/3600 else '✅')} |",
         f"| **深度观看** | {agg['total_deep']} 个（占比 {agg['deep_ratio']*100:.1f}%） | {'✅' if agg['deep_ratio'] >= HEALTH['deep_watch_ratio'] else '⚠️ 偏低'} |",
         f"| **周平均评分** | {agg['avg_score']}/100 | {score_eval} |",
         f"| **平均完成度** | {agg['avg_completion']}% | {'✅' if agg['avg_completion'] >= HEALTH['avg_completion'] else '⚠️ 偏低'} |",
@@ -315,9 +317,10 @@ def build_markdown(week_number: int, monday: date, sunday: date,
     fragment_pct   = agg["fragment_ratio"] * 100
     deep_pct       = agg["deep_ratio"] * 100
     score_gap      = agg["avg_score"] - HEALTH["weekly_score"]
-    time_over_pct  = (agg["avg_daily_time"] / HEALTH["daily_time_sec"] - 1) * 100
 
-    time_cell     = "✅" if time_over_pct <= 0 else f"❌ 超{time_over_pct:.0f}%"
+    time_cell     = ("✅" if agg["avg_daily_time"] <= HEALTH["daily_time_sec"]
+                     else "⚠️ 略超基线" if agg["avg_daily_time"] <= HEALTH["daily_warn_sec"]
+                     else f"❌ 超警告线{(agg['avg_daily_time'] - HEALTH['daily_warn_sec'])/3600:.1f}h")
     frag_limit    = HEALTH["fragment_ratio"] * 100
     frag_cell     = "✅" if fragment_pct <= frag_limit else f"❌ 超{fragment_pct - frag_limit:.1f}%"
     deep_target   = HEALTH["deep_watch_ratio"] * 100
@@ -329,7 +332,7 @@ def build_markdown(week_number: int, monday: date, sunday: date,
         "",
         "| 指标 | 本周 | 健康标准 | 差距 |",
         "|------|------|----------|------|",
-        f"| 每日时长 | {avg_h:.2f}h | ≤{HEALTH['daily_time_sec']//3600}h | {time_cell} |",
+        f"| 每日时长 | {avg_h:.2f}h | 基线{HEALTH['daily_time_sec']/3600:.1f}h / 警告{HEALTH['daily_warn_sec']/3600:.1f}h | {time_cell} |",
         f"| 碎片视频占比 | {fragment_pct:.1f}% | ≤{frag_limit:.0f}% | {frag_cell} |",
         f"| 深度观看占比 | {deep_pct:.1f}% | ≥{deep_target:.0f}% | {deep_cell} |",
         f"| 周评分 | {agg['avg_score']}/100 | ≥{HEALTH['weekly_score']}/100 | {score_cell} |",
