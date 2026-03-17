@@ -30,6 +30,89 @@ def get_bilibili_cookies():
             continue
     raise RuntimeError("未能从浏览器获取 B站 Cookie，请确保已在浏览器中登录 B站")
 
+def get_video_pagelist(bvid, cookies, headers, _cache={}):
+    """获取视频分P列表，按 bvid 缓存避免重复请求"""
+    if bvid in _cache:
+        return _cache[bvid]
+    try:
+        url = f'https://api.bilibili.com/x/player/pagelist?bvid={bvid}'
+        resp = requests.get(url, headers=headers, cookies=cookies, timeout=5)
+        data = resp.json()
+        result = data['data'] if data.get('code') == 0 else None
+    except Exception:
+        result = None
+    _cache[bvid] = result
+    return result
+
+
+def enrich_multipart_history(day_history, prev_video_positions, cookies):
+    """修正分P视频数据，消除重复计算并补全今天新看的P。
+
+    策略：
+    - 同一 bvid 只保留当天 page_num 最高的条目（防止同视频多条记录重复计算）
+    - 若 stats 中有前一天的页码，则将"上次位置+1"到"当前P-1"之间的P视为今天完成，
+      补加它们的时长；否则只记录当前P（不猜测未知历史）
+    """
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://www.bilibili.com',
+    }
+
+    regular = []       # 非分P（或第1P）的普通条目，直接保留
+    bvid_best = {}     # bvid → 当天 page_num 最高的那条记录
+
+    for item in day_history:
+        page_info = item.get('page') or {}
+        page_num = page_info.get('page') or 1
+        bvid = item.get('bvid', '')
+
+        if page_num <= 1 or not bvid:
+            regular.append(item)
+            continue
+
+        existing = bvid_best.get(bvid)
+        if existing is None:
+            bvid_best[bvid] = item
+        else:
+            existing_page = (existing.get('page') or {}).get('page', 1) or 1
+            if page_num > existing_page:
+                bvid_best[bvid] = item
+
+    enriched = []
+    for bvid, item in bvid_best.items():
+        page_info = item.get('page') or {}
+        page_num = page_info.get('page') or 1
+        page_duration = page_info.get('duration', 0)
+        progress = item.get('progress', 0)
+
+        if progress == -1:
+            progress = page_duration
+
+        effective_duration = page_duration if page_duration > 0 else item.get('duration', 0)
+        effective_progress = progress
+
+        prev_page = prev_video_positions.get(bvid)  # None = 无前一天记录
+
+        if prev_page is not None and page_num > prev_page + 1:
+            # 有明确上次位置，且今天跨越了中间P → 从分P列表补全
+            pagelist = get_video_pagelist(bvid, cookies, headers)
+            if pagelist and len(pagelist) >= page_num:
+                for p in pagelist[prev_page: page_num - 1]:
+                    effective_duration += p['duration']
+                    effective_progress += p['duration']   # 中间P视为已看完
+
+        new_item = dict(item)
+        new_item['duration'] = effective_duration
+        new_item['progress'] = effective_progress
+        new_item['watch_percent'] = (
+            round(effective_progress / effective_duration * 100, 1)
+            if effective_duration > 0 else 0
+        )
+        enriched.append(new_item)
+
+    return regular + enriched
+
+
 def get_bilibili_history(cookies, pages=5):
     """获取B站浏览历史记录"""
     headers = {
@@ -48,21 +131,33 @@ def get_bilibili_history(cookies, pages=5):
             break
 
         for item in data['data']:
-            duration = item.get('duration', 0)
+            total_duration = item.get('duration', 0)
             progress = item.get('progress', 0)
-            
+
+            # 分P视频：history API 为每一P生成独立记录，每条记录只代表该P的一次观看
+            # 用 page.duration（当前P时长）而非顶层 duration（全部P总时长）
+            # 这样 watch_percent 和视频分类都基于该P本身，不会被合集总时长拉低
+            page_info = item.get('page') or {}
+            page_duration = page_info.get('duration', 0)
+            effective_duration = page_duration if page_duration > 0 else total_duration
+
             if progress == -1:
-                progress = duration
-            
+                progress = effective_duration
+
+            title = item.get('title', '')
+            page_num = page_info.get('page') or 1
+            if page_num > 1:
+                title = f"{title} P{page_num}"
+
             all_history.append({
-                'title': item.get('title', ''),
+                'title': title,
                 'author': item.get('owner', {}).get('name', ''),
                 'mid': item.get('owner', {}).get('mid', ''),
                 'desc': item.get('desc', ''),
                 'view_at': item.get('view_at', 0),
-                'duration': duration,
+                'duration': effective_duration,
                 'progress': progress,
-                'watch_percent': round(progress / duration * 100, 1) if duration > 0 else 0,
+                'watch_percent': round(progress / effective_duration * 100, 1) if effective_duration > 0 else 0,
                 'bvid': item.get('bvid', ''),
                 'tname': item.get('tname', ''),
             })
@@ -677,16 +772,105 @@ def generate_reflection_template(stats, video_stats, classified):
     return "\n".join(lines)
 
 
+def _parse_frontmatter_fields(text):
+    """简单解析 YAML frontmatter 中的数值字段（无外部依赖）"""
+    result = {}
+    stack = [result]  # 当前嵌套层的字典栈
+    indent_stack = [-1]  # 对应的缩进层级
+
+    for line in text.splitlines():
+        if not line.strip() or line.strip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        stripped = line.strip()
+
+        # 弹回合适的层级
+        while len(indent_stack) > 1 and indent <= indent_stack[-1]:
+            stack.pop()
+            indent_stack.pop()
+
+        if ":" not in stripped:
+            continue
+
+        key, _, val = stripped.partition(":")
+        key = key.strip()
+        val = val.strip()
+
+        if val == "" or val is None:
+            # 嵌套字典
+            new_dict = {}
+            stack[-1][key] = new_dict
+            stack.append(new_dict)
+            indent_stack.append(indent)
+        else:
+            # 尝试转为数值
+            try:
+                stack[-1][key] = int(val)
+            except ValueError:
+                try:
+                    stack[-1][key] = float(val)
+                except ValueError:
+                    stack[-1][key] = val.strip('"').strip("'")
+
+    return result
+
+
+def extract_stats_from_summary_file(target_date):
+    """从已生成的总结 MD 文件中提取统计数据（.stats JSON 不存在时的备用方案）"""
+    date_str = target_date.strftime("%Y-%m-%d")
+    md_file = os.path.join(SUMMARY_FOLDER, f"{date_str}-B站总结.md")
+
+    if not os.path.exists(md_file):
+        return None
+
+    try:
+        with open(md_file, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        if not content.startswith("---"):
+            return None
+        end = content.find("\n---", 3)
+        if end == -1:
+            return None
+
+        frontmatter_text = content[3:end]
+
+        fm = _parse_frontmatter_fields(frontmatter_text)
+        if not fm:
+            return None
+
+        bm = fm.get("behavior_metrics") or {}
+        vs = fm.get("video_stats") or {}
+        sv = vs.get("short_video") or {}
+
+        return {
+            "total_videos": fm.get("video_count"),
+            "total_watch_time": fm.get("total_time"),
+            "deep_watch_count": fm.get("deep_watch"),
+            "avg_completion": bm.get("avg_completion"),
+            "quality_time_ratio": bm.get("quality_time_ratio"),
+            "fragment_count": sv.get("fragment_count"),
+            "score": fm.get("score"),
+        }
+    except Exception:
+        return None
+
+
 def load_stats_by_date(target_date):
-    """加载指定日期的统计数据"""
+    """加载指定日期的统计数据，优先读取 JSON，不存在时从 MD 文件恢复"""
     os.makedirs(SUMMARY_FOLDER, exist_ok=True)
     date_str = target_date.strftime("%Y-%m-%d")
     stats_file = os.path.join(SUMMARY_FOLDER, f".stats_{date_str}.json")
-    
+
     if os.path.exists(stats_file):
         with open(stats_file, "r", encoding="utf-8") as f:
             return json.load(f)
-    return None
+
+    # 备用方案：从 MD 文件的 frontmatter 中恢复（适用于周总结后 JSON 缺失的情形）
+    fallback = extract_stats_from_summary_file(target_date)
+    if fallback:
+        print(f"   ℹ️ .stats JSON 不存在，已从 {date_str}-B站总结.md 恢复统计数据")
+    return fallback
 
 
 def load_yesterday_stats():
@@ -695,12 +879,12 @@ def load_yesterday_stats():
     return load_stats_by_date(yesterday)
 
 
-def save_stats_by_date(target_date, stats, video_stats, behavior_metrics, score):
+def save_stats_by_date(target_date, stats, video_stats, behavior_metrics, score, video_positions=None):
     """保存指定日期的统计数据"""
     os.makedirs(SUMMARY_FOLDER, exist_ok=True)
     date_str = target_date.strftime("%Y-%m-%d")
     stats_file = os.path.join(SUMMARY_FOLDER, f".stats_{date_str}.json")
-    
+
     save_data = {
         "total_videos": stats["total_videos"],
         "total_watch_time": stats["total_watch_time"],
@@ -709,8 +893,9 @@ def save_stats_by_date(target_date, stats, video_stats, behavior_metrics, score)
         "quality_time_ratio": behavior_metrics["quality_time_ratio"],
         "fragment_count": video_stats["short_video"]["fragment_count"],
         "score": score,
+        "video_positions": video_positions or {},  # {bvid: page_num}，供次日 delta 修正使用
     }
-    
+
     with open(stats_file, "w", encoding="utf-8") as f:
         json.dump(save_data, f)
 
@@ -850,42 +1035,62 @@ def get_yesterday_summary_file_path():
 
 def should_regenerate_yesterday_summary():
     """判断是否需要重新生成昨天的总结
-    
-    条件：昨天的总结不存在，或者不是在昨天23:30之后/今天生成的
+
+    条件：昨天的总结不存在，或者不是在昨天23:30之后/今天生成的。
+    注意：周总结可能将周日的 MD 文件移走，因此同时检查隐藏的 .stats JSON
+    文件作为"已生成"凭证（JSON 不会随 MD 一起移动）。
     """
-    file_path = get_yesterday_summary_file_path()
-    
-    # 文件不存在，需要生成
-    if not os.path.exists(file_path):
-        return True
-    
-    # 获取文件修改时间
-    file_mtime = datetime.fromtimestamp(os.path.getmtime(file_path))
-    
-    # 昨天 23:30
     yesterday = (datetime.now() - timedelta(days=1)).date()
-    cutoff_time = datetime.combine(yesterday, datetime.strptime("23:30", "%H:%M").time())
-    
-    # 如果文件修改时间早于昨天23:30，需要重新生成
-    if file_mtime < cutoff_time:
+    date_str = yesterday.strftime("%Y-%m-%d")
+
+    md_path = get_yesterday_summary_file_path()
+    stats_path = os.path.join(SUMMARY_FOLDER, f".stats_{date_str}.json")
+
+    md_exists = os.path.exists(md_path)
+    stats_exists = os.path.exists(stats_path)
+
+    # MD 和 stats JSON 都不存在，确实需要生成
+    if not md_exists and not stats_exists:
         return True
-    
-    return False
+
+    # 跨周边界（今天是周一）：周总结已处理上周数据（MD 可能被移走），不重新生成
+    if datetime.now().weekday() == 0:
+        return False
+
+    # 用存在的文件的修改时间判断是否覆盖（优先 MD，否则用 JSON）
+    ref_path = md_path if md_exists else stats_path
+    file_mtime = datetime.fromtimestamp(os.path.getmtime(ref_path))
+    cutoff_time = datetime.combine(yesterday, datetime.strptime("23:30", "%H:%M").time())
+
+    return file_mtime < cutoff_time
 
 
-def generate_summary_for_date(history_list, target_date, prev_day_stats=None):
+def generate_summary_for_date(history_list, target_date, prev_day_stats=None, cookies=None):
     """为指定日期生成总结"""
     date_str = target_date.strftime("%Y-%m-%d")
     week_number = target_date.isocalendar()[1]
-    
+
     # 筛选指定日期的记录
     day_history = filter_history_by_date(history_list, target_date)
-    
+
     if not day_history:
         print(f"📅 {date_str} 没有观看记录")
         return None
-    
+
     print(f"📅 正在生成 {date_str} 的总结（{len(day_history)}条记录）...")
+
+    # 分P视频 delta 修正：补全今天新看的中间P
+    if cookies:
+        prev_video_positions = (prev_day_stats or {}).get("video_positions", {})
+        day_history = enrich_multipart_history(day_history, prev_video_positions, cookies)
+
+    # 计算今天各视频的最高页码，供明天使用
+    video_positions = {}
+    for item in day_history:
+        bvid = item.get('bvid', '')
+        page_num = (item.get('page') or {}).get('page') or 1
+        if bvid:
+            video_positions[bvid] = max(video_positions.get(bvid, 0), page_num)
     
     # 计算统计数据
     stats = calculate_statistics(day_history)
@@ -909,7 +1114,7 @@ def generate_summary_for_date(history_list, target_date, prev_day_stats=None):
     comparison_text = generate_comparison(stats, behavior_metrics, prev_day_stats)
     
     # 保存统计数据
-    save_stats_by_date(target_date, stats, video_stats, behavior_metrics, total_score)
+    save_stats_by_date(target_date, stats, video_stats, behavior_metrics, total_score, video_positions)
     
     # 生成标签
     tags = generate_tags(stats, video_stats, behavior_metrics)
@@ -1025,40 +1230,77 @@ content_types:
 
 def main():
     """主函数"""
+    import argparse
+    parser = argparse.ArgumentParser(description="生成B站每日观看总结")
+    parser.add_argument(
+        "--date", "-d",
+        metavar="YYYY-MM-DD",
+        help="生成指定日期的总结（默认生成今日+检查昨日）",
+    )
+    args = parser.parse_args()
+
     # 自动从浏览器读取 Cookie
     cookies = get_bilibili_cookies()
 
-    # 获取历史记录（多获取几页以确保包含昨天的数据）
+    # 指定日期模式：多拉几页以覆盖更早的历史
+    if args.date:
+        try:
+            target_date = datetime.strptime(args.date, "%Y-%m-%d").date()
+        except ValueError:
+            print(f"❌ 日期格式错误，请使用 YYYY-MM-DD，例如：--date 2026-03-10")
+            return
+
+        days_ago = (datetime.now().date() - target_date).days
+        pages = max(8, days_ago // 2 + 4)  # 距今越远多拉几页
+        print(f"📥 获取B站历史记录（{pages}页）...")
+        history = get_bilibili_history(cookies, pages=pages)
+
+        if not history:
+            print("❌ 获取历史记录失败")
+            return
+
+        print(f"   获取到 {len(history)} 条记录")
+        print(f"\n📊 生成 {args.date} 的总结...")
+        prev_stats = load_stats_by_date(target_date - timedelta(days=1))
+        result = generate_summary_for_date(history, target_date, prev_stats, cookies)
+
+        if result:
+            print(f"\n🎉 完成！得分：{result['score']}/100")
+        else:
+            print(f"\n📭 {args.date} 没有观看记录")
+        return
+
+    # 默认模式：检查昨日 + 生成今日
     print("📥 获取B站历史记录...")
     history = get_bilibili_history(cookies, pages=8)
-    
+
     if not history:
         print("❌ 获取历史记录失败")
         return
-    
+
     print(f"   获取到 {len(history)} 条记录")
-    
+
     # 检查是否需要重新生成昨天的总结
     print("\n🔄 检查昨日总结...")
     if should_regenerate_yesterday_summary():
         yesterday = (datetime.now() - timedelta(days=1)).date()
-        
+
         # 加载前天的统计数据用于对比
         day_before_yesterday = yesterday - timedelta(days=1)
         prev_stats = load_stats_by_date(day_before_yesterday)
-        
+
         print("   ⚠️ 昨日总结需要重新生成...")
-        generate_summary_for_date(history, yesterday, prev_stats)
+        generate_summary_for_date(history, yesterday, prev_stats, cookies)
     else:
         print("   ✅ 昨日总结已是最新，跳过")
-    
+
     # 生成今天的总结
     print("\n📊 生成今日总结...")
     today = datetime.now().date()
     yesterday_stats = load_yesterday_stats()
-    
-    result = generate_summary_for_date(history, today, yesterday_stats)
-    
+
+    result = generate_summary_for_date(history, today, yesterday_stats, cookies)
+
     if result:
         print(f"\n🎉 完成！今日得分：{result['score']}/100")
     else:

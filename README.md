@@ -95,7 +95,9 @@ SUMMARY_FOLDER = "/path/to/your/obsidian/vault/bilibili"
 ### 每日总结
 
 ```bash
-python daily_summary.py
+python daily_summary.py                    # 生成今日总结 + 检查昨日
+python daily_summary.py --date 2026-03-10  # 生成指定日期的总结
+python daily_summary.py -d 2026-03-10      # 同上，简写形式
 ```
 
 ### 每周总结
@@ -437,6 +439,15 @@ LIMIT 5
 ---
 
 ## 📝 更新日志
+
+### v1.4.0
+- **修复** 分P视频时长统计不完整：采用增量（delta）法，将上次观看位置存入 `.stats_*.json`，次日对比得出"今天新看了哪几P"，仅补全这部分时长，彻底解决之前累加法导致的重复计算问题
+
+### v1.3.0
+- **新增** `--date` / `-d` 参数，支持生成指定日期的总结（距今越远自动增加拉取页数）
+- **修复** 分P/合集视频数据读取错误：改用 `page.duration`（当前P时长）替代顶层总时长，完成度和长/中/短分类不再偏低；标题自动附加 `P2`、`P3` 等编号
+- **修复** 周总结后周一重复生成周日总结：新增对 `.stats_*.json` 文件的存在性检查，MD 文件被归档移走时仍能正确判断已完成
+- **修复** 周一缺少周日对比数据：`.stats_*.json` 丢失时自动从 MD 的 YAML frontmatter 中恢复统计数据
 
 ### v1.2.0
 - 新增 `weekly_summary.py` 每周总结生成器
