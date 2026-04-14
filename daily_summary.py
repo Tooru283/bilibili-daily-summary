@@ -7,7 +7,7 @@ from collections import defaultdict
 import browser_cookie3
 
 # 保存路径
-SUMMARY_FOLDER = "/Users/moca/Documents/笔记/研究生/Blisummary"
+SUMMARY_FOLDER = "/Users/moca/Documents/笔记/研究生/04_Bilibili"
 
 # 获取脚本所在目录
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -113,7 +113,7 @@ def enrich_multipart_history(day_history, prev_video_positions, cookies):
     return regular + enriched
 
 
-def get_bilibili_history(cookies, pages=5):
+def get_bilibili_history(cookies, pages=None, max_pages=50):
     """获取B站浏览历史记录"""
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -121,7 +121,10 @@ def get_bilibili_history(cookies, pages=5):
     }
 
     all_history = []
-    for page in range(1, pages + 1):
+    page = 1
+    page_limit = pages if pages is not None else max_pages
+
+    while page <= page_limit:
         url = f'https://api.bilibili.com/x/v2/history?pn={page}&ps=30'
         response = requests.get(url, headers=headers, cookies=cookies)
         data = response.json()
@@ -130,7 +133,11 @@ def get_bilibili_history(cookies, pages=5):
             print(f"请求失败: {data['message']}")
             break
 
-        for item in data['data']:
+        items = data.get('data') or []
+        if not items:
+            break
+
+        for item in items:
             total_duration = item.get('duration', 0)
             progress = item.get('progress', 0)
 
@@ -161,6 +168,11 @@ def get_bilibili_history(cookies, pages=5):
                 'bvid': item.get('bvid', ''),
                 'tname': item.get('tname', ''),
             })
+
+        if len(items) < 30:
+            break
+
+        page += 1
 
     return all_history
 
@@ -618,10 +630,10 @@ def generate_goal_tracking(stats, video_stats, content_score, advanced_score):
     """生成目标管理追踪"""
     lines = ["## 🎯 每日目标追踪", ""]
     
-    # 基准来自 03-04~03-15 实测均值：视频108个 / 时长3.69h / 深度观看13个
-    video_goal = 100           # 均值108，100是有挑战性但可达的目标
-    time_goal  = int(4 * 3600) # 均值3.69h，4h 为日常警戒线（学习+娱乐混合）
-    deep_goal  = 10            # 均值13，10个深度观看是较合理目标
+    # 基准来自 03-04~03-25 实测数据（21天）：视频均值103 / 时长均值3.4h / 深度观看均值12
+    video_goal = 130           # 高于均值，宽松模式
+    time_goal  = int(4 * 3600) # 4h 宽松警戒线
+    deep_goal  = 5             # 低于均值12，容易达标
     
     total_videos = stats["total_videos"]
     total_time = stats["total_watch_time"]
@@ -1018,7 +1030,7 @@ def generate_summary_with_claude(stats_text, classification_text, quality_text):
 """
     
     result = subprocess.run(
-        ["/opt/homebrew/bin/claude", "-p", prompt],
+        ["/Users/moca/.local/bin/claude", "-p", prompt],
         capture_output=True,
         text=True
     )
@@ -1272,7 +1284,7 @@ def main():
 
     # 默认模式：检查昨日 + 生成今日
     print("📥 获取B站历史记录...")
-    history = get_bilibili_history(cookies, pages=8)
+    history = get_bilibili_history(cookies, pages=20)
 
     if not history:
         print("❌ 获取历史记录失败")

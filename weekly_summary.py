@@ -20,7 +20,7 @@ from pathlib import Path
 
 # ─── 配置 ─────────────────────────────────────────────────────────────────────
 
-SUMMARY_FOLDER = "/Users/moca/Documents/笔记/研究生/Blisummary"
+SUMMARY_FOLDER = "/Users/moca/Documents/笔记/研究生/04_Bilibili"
 WEEKLY_FOLDER  = os.path.join(SUMMARY_FOLDER, "周总结")
 
 # 健康标准基准（学习+娱乐混合场景）
