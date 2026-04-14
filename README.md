@@ -77,11 +77,20 @@ claude login
 
 ### 2. 修改保存路径
 
-编辑 `daily_summary.py` 第 9 行，修改为你的 Obsidian vault 路径：
+现在保存路径等公共配置已经统一放在 [blisummary/config.py](blisummary/config.py)。
+
+默认配置：
 
 ```python
-# 保存路径
-SUMMARY_FOLDER = "/path/to/your/obsidian/vault/bilibili"
+SUMMARY_FOLDER = "/Users/moca/Documents/笔记/研究生/04_Bilibili"
+```
+
+如果你要换 Obsidian vault 路径，修改 [blisummary/config.py](blisummary/config.py) 里的 `SUMMARY_FOLDER` 即可。
+
+也可以通过环境变量覆盖 Claude CLI 路径：
+
+```bash
+export CLAUDE_CLI=/path/to/claude
 ```
 
 **示例路径：**
@@ -110,9 +119,36 @@ python weekly_summary.py 2026-W10 # 生成指定周总结
 
 > **推荐工作流：** 每天晚上 23:55 自动运行 `daily_summary.py`，每周一早上手动或自动运行 `weekly_summary.py`。
 
+### 当前项目结构
+
+```text
+Blisummary/
+├── daily_summary.py              # 日报 CLI 入口
+├── weekly_summary.py             # 周报 CLI 入口
+├── blisummary/
+│   ├── config.py                 # 共享配置
+│   ├── models.py                 # 共享类型/模型
+│   ├── common/
+│   │   ├── ai.py                 # Claude CLI 调用
+│   │   └── formatting.py         # 通用格式化
+│   ├── storage/
+│   │   └── stats_store.py        # .stats / frontmatter 读写
+│   ├── bilibili/
+│   │   └── client.py             # B站 API / Cookie / 分P处理
+│   ├── daily/
+│   │   ├── metrics.py            # 日报统计计算
+│   │   ├── render.py             # 日报 Markdown 渲染
+│   │   └── service.py            # 日报主流程
+│   └── weekly/
+│       ├── analytics.py          # 周报分析逻辑
+│       ├── render.py             # 周报渲染/归档
+│       └── service.py            # 周报主流程
+└── run_summary.sh
+```
+
 ### 运行输出
 
-```
+```text
 📥 获取B站历史记录...
    获取到 240 条记录
 
