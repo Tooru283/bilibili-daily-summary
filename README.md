@@ -1,512 +1,203 @@
 # B站观看总结生成器
 
-自动获取你的B站观看历史，生成结构化的**每日 + 每周**总结报告，并通过 Claude AI 进行智能分析。
+一个本地 Python 项目，用于分析 **B站观看历史**，生成适配 **Obsidian + Dataview** 的日报与周报。
 
-## ✨ 功能特点
-
-### 每日总结（`daily_summary.py`）
-- 📊 **多维度统计** - 按视频时长、分区、UP主分类统计
-- ⭐ **质量评分** - 自动评估观看质量（知识增量、思考深度等）
-- 🎯 **目标追踪** - 设定每日目标，追踪完成情况
-- 📈 **趋势对比** - 与昨日数据对比，发现变化趋势
-- 🕐 **时间热力图** - 可视化你的观看时段分布
-- 🤖 **AI 总结** - 调用 Claude 生成智能分析和建议
-- 📝 **Obsidian 适配** - 生成带有 frontmatter 的 Markdown 文件，支持 Dataview 查询
-
-### 每周总结（`weekly_summary.py`）
-- 📅 **自动识别周边界** - 按 ISO 周自动计算周一至周日
-- 📊 **周汇总统计** - 自动聚合全周时长、视频数、深度观看等指标
-- 🔍 **问题自动检测** - 对比健康基准，自动标记超时、碎片化、评分下滑等问题
-- 💡 **分层建议生成** - 根据检测到的问题自动生成紧急/中期/长期行动建议
-- 📁 **文件自动归档** - 周结束后将日报移入对应周文件夹，保持目录整洁
+当前版本已经从单体脚本重构为按职责拆分的 package。README 重点说明：**项目定位、模块边界、运行方式、后续维护入口**。
 
 ---
 
-## 📋 环境要求
+## 1. 项目定位
 
-- **Python 3.8+**
-- **Claude Code CLI**（用于生成 AI 总结）
-- **Obsidian**（可选，用于查看和管理总结）
+这是一个**本地个人分析工具**。
 
----
+核心能力：
 
-## 🚀 安装步骤
+- 从浏览器读取 B站 Cookie
+- 拉取观看历史并兼容分 P / SSL 异常场景
+- 生成日报 Markdown
+- 基于日报缓存聚合生成周报
+- 调用 Claude CLI 生成自然语言总结
 
-### 1. 克隆或下载代码
+设计目标：
 
-```bash
-git clone https://github.com/Tooru283/bilibili-daily-summary.git
-cd bilibili-daily-summary
-```
-
-### 2. 创建虚拟环境（推荐）
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate  # macOS/Linux
-# 或 .venv\Scripts\activate  # Windows
-```
-
-### 3. 安装依赖
-
-```bash
-pip install requests browser-cookie3
-```
-
-### 4. 安装 Claude Code CLI
-
-```bash
-npm install -g @anthropic-ai/claude-code
-```
-
-首次使用需要登录：
-
-```bash
-claude login
-```
+- 明确“抓数 / 分析 / 渲染 / AI / 存储”边界
+- 为测试、类型和新报表扩展留出口
 
 ---
 
-## ⚙️ 配置说明
-
-### 1. 登录 B站
-
-直接在浏览器（Chrome / Safari / Firefox）中登录 B站即可。脚本会通过 `browser-cookie3` **自动读取**浏览器中的 Cookie，无需手动复制。
-
-> **注意：** 首次运行时，macOS 可能会弹出权限提示，需要允许访问 Safari/Chrome 的 Cookie 数据库。
-
-### 2. 修改保存路径
-
-现在保存路径等公共配置已经统一放在 [blisummary/config.py](blisummary/config.py)。
-
-默认配置：
-
-```python
-SUMMARY_FOLDER = "/Users/moca/Documents/笔记/研究生/04_Bilibili"
-```
-
-如果你要换 Obsidian vault 路径，修改 [blisummary/config.py](blisummary/config.py) 里的 `SUMMARY_FOLDER` 即可。
-
-也可以通过环境变量覆盖 Claude CLI 路径：
-
-```bash
-export CLAUDE_CLI=/path/to/claude
-```
-
-**示例路径：**
-- macOS: `/Users/你的用户名/Documents/Obsidian/笔记/bilibili`
-- Windows: `C:/Users/你的用户名/Documents/Obsidian/笔记/bilibili`
-
----
-
-## 📖 使用方法
-
-### 每日总结
-
-```bash
-python daily_summary.py                    # 生成今日总结 + 检查昨日
-python daily_summary.py --date 2026-03-10  # 生成指定日期的总结
-python daily_summary.py -d 2026-03-10      # 同上，简写形式
-```
-
-### 每周总结
-
-```bash
-python weekly_summary.py          # 生成上周总结（默认，每周一运行）
-python weekly_summary.py 0        # 生成本周（当前不完整）总结
-python weekly_summary.py 2026-W10 # 生成指定周总结
-```
-
-> **推荐工作流：** 每天晚上 23:55 自动运行 `daily_summary.py`，每周一早上手动或自动运行 `weekly_summary.py`。
-
-### 当前项目结构
+## 2. 项目结构
 
 ```text
 Blisummary/
-├── daily_summary.py              # 日报 CLI 入口
-├── weekly_summary.py             # 周报 CLI 入口
-├── blisummary/
-│   ├── config.py                 # 共享配置
-│   ├── models.py                 # 共享类型/模型
-│   ├── common/
-│   │   ├── ai.py                 # Claude CLI 调用
-│   │   └── formatting.py         # 通用格式化
-│   ├── storage/
-│   │   └── stats_store.py        # .stats / frontmatter 读写
-│   ├── bilibili/
-│   │   └── client.py             # B站 API / Cookie / 分P处理
-│   ├── daily/
-│   │   ├── metrics.py            # 日报统计计算
-│   │   ├── render.py             # 日报 Markdown 渲染
-│   │   └── service.py            # 日报主流程
-│   └── weekly/
-│       ├── analytics.py          # 周报分析逻辑
-│       ├── render.py             # 周报渲染/归档
-│       └── service.py            # 周报主流程
-└── run_summary.sh
+├── daily_summary.py                 # 日报 CLI 入口
+├── weekly_summary.py                # 周报 CLI 入口
+├── run_summary.sh                   # 定时运行脚本
+├── README.md
+└── blisummary/
+    ├── config.py                    # 配置与路径 helper
+    ├── models.py                    # 共享 TypedDict
+    ├── common/
+    │   ├── ai.py                    # Claude CLI 调用
+    │   └── formatting.py            # 通用格式化
+    ├── bilibili/
+    │   └── client.py                # Cookie / API / 分P补全 / SSL fallback
+    ├── storage/
+    │   └── stats_store.py           # .stats 与 frontmatter 读写
+    ├── daily/
+    │   ├── metrics.py               # 日报统计与评分
+    │   ├── render.py                # 日报渲染
+    │   └── service.py               # 日报流程编排
+    └── weekly/
+        ├── analytics.py             # 周报聚合与问题分析
+        ├── render.py                # 周报渲染与归档
+        └── service.py               # 周报流程编排
 ```
 
-### 运行输出
+---
+
+## 3. 模块边界
+
+| 模块                                                                | 作用                                          |
+| ------------------------------------------------------------------- | --------------------------------------------- |
+| [daily_summary.py](daily_summary.py)                                   | 解析 `--date` 并调用日报 service            |
+| [weekly_summary.py](weekly_summary.py)                                 | 解析周参数并调用周报 service                  |
+| [blisummary/config.py](blisummary/config.py)                           | 输出目录、文件命名规则、Claude CLI 定位       |
+| [blisummary/bilibili/client.py](blisummary/bilibili/client.py)         | B站 Cookie、历史接口、分 P 补全、SSL fallback |
+| [blisummary/storage/stats_store.py](blisummary/storage/stats_store.py) | 日报缓存保存/读取、frontmatter 恢复           |
+| [blisummary/daily/metrics.py](blisummary/daily/metrics.py)             | 日报业务规则、分类、评分                      |
+| [blisummary/daily/render.py](blisummary/daily/render.py)               | 日报 Markdown 文本片段                        |
+| [blisummary/daily/service.py](blisummary/daily/service.py)             | 日报主流程                                    |
+| [blisummary/weekly/analytics.py](blisummary/weekly/analytics.py)       | 周报聚合、阈值分析、建议生成                  |
+| [blisummary/weekly/render.py](blisummary/weekly/render.py)             | 周报 Markdown 与归档                          |
+| [blisummary/weekly/service.py](blisummary/weekly/service.py)           | 周报主流程                                    |
+| [blisummary/common/ai.py](blisummary/common/ai.py)                     | Claude 调用封装                               |
+| [blisummary/common/formatting.py](blisummary/common/formatting.py)     | 通用格式化能力                                |
+
+分层约定：
+
+- **metrics / analytics**：业务规则与计算
+- **render**：文本渲染
+- **service**：流程编排
+- **bilibili / common / storage**：外部系统与基础设施
+
+---
+
+## 4. 关键数据流
+
+### 日报
 
 ```text
-📥 获取B站历史记录...
-   获取到 240 条记录
-
-🔄 检查昨日总结...
-   ✅ 昨日总结已是最新，跳过
-
-📊 生成今日总结...
-📅 正在生成 2026-03-05 的总结（45条记录）...
-   🤖 生成 AI 总结...
-   ✅ 已保存到: /path/to/bilibili/2026-03-05-B站总结.md
-
-🎉 完成！今日得分：65/100
+daily_summary.py
+  -> daily.service.run_daily_summary()
+     -> bilibili.client.get_bilibili_history()
+     -> daily.metrics.*
+     -> daily.render.*
+     -> common.ai.run_claude_prompt()
+     -> storage.stats_store.save_stats_by_date()
+     -> 输出日报 Markdown
 ```
+
+### 周报
+
+```text
+weekly_summary.py
+  -> weekly.service.generate_weekly_summary()
+     -> storage.stats_store.load_week_stats()
+     -> weekly.analytics.*
+     -> common.ai.run_claude_prompt()
+     -> weekly.render.build_markdown()
+     -> weekly.render.archive_week()
+     -> 输出周报 Markdown
+```
+
+说明：周报**不直接请求 B站 API**，而是依赖日报缓存 `.stats_YYYY-MM-DD.json`。
 
 ---
 
-## ⏰ 定时任务设置
+## 5. 运行方式
 
-### macOS - 使用 LaunchAgent（推荐）✨
+### 环境要求
 
-LaunchAgent 支持**即使电脑休眠也会自动唤醒运行**，无需电脑始终开着。
+- Python 3.10+
+- `requests`
+- `browser-cookie3`
+- Claude CLI
 
-#### 1. 创建包装脚本
-
-项目中已包含 `run_summary.sh`，这是一个自动激活虚拟环境并运行脚本的包装脚本：
-
-```bash
-# 查看脚本内容
-cat run_summary.sh
-
-# 确保脚本可执行
-chmod +x run_summary.sh
-```
-
-#### 2. 创建 LaunchAgent 配置
-
-创建配置文件：
+### 安装依赖
 
 ```bash
-cat > ~/Library/LaunchAgents/com.user.bilisummary.plist << 'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.user.bilisummary</string>
-
-    <key>ProgramArguments</key>
-    <array>
-        <string>/bin/bash</string>
-        <string>/Users/moca/Work/Python/Blisummary/run_summary.sh</string>
-    </array>
-
-    <!-- 定时配置：每天23:00运行 -->
-    <key>StartCalendarInterval</key>
-    <dict>
-        <key>Hour</key>
-        <integer>23</integer>
-        <key>Minute</key>
-        <integer>0</integer>
-    </dict>
-
-    <!-- 同时在启动时也运行一次 -->
-    <key>RunAtLoad</key>
-    <true/>
-
-    <!-- 标准输出/错误日志 -->
-    <key>StandardOutPath</key>
-    <string>/tmp/bilisummary_out.log</string>
-    <key>StandardErrorPath</key>
-    <string>/tmp/bilisummary_err.log</string>
-
-    <key>WorkingDirectory</key>
-    <string>/Users/moca/Work/Python/Blisummary</string>
-</dict>
-</plist>
-EOF
-```
-
-**注意：** 将路径修改为你的实际项目目录。
-
-#### 3. 加载并启动任务
-
-```bash
-# 加载 LaunchAgent
-launchctl load ~/Library/LaunchAgents/com.user.bilisummary.plist
-
-# 验证已加载
-launchctl list | grep bilisummary
-```
-
-#### 4. 管理命令
-
-```bash
-# 手动触发一次
-launchctl start com.user.bilisummary
-
-# 暂停运行
-launchctl unload ~/Library/LaunchAgents/com.user.bilisummary.plist
-
-# 重新启用
-launchctl load ~/Library/LaunchAgents/com.user.bilisummary.plist
-
-# 查看日志
-tail -50 /tmp/bilisummary.log
-tail -20 /tmp/bilisummary_err.log  # 查看错误日志
-```
-
-#### 5. 修改运行时间
-
-编辑配置文件中的 `StartCalendarInterval` 部分：
-
-```xml
-<key>StartCalendarInterval</key>
-<dict>
-    <key>Hour</key>
-    <integer>23</integer>     <!-- 改为你想要的小时（0-23）-->
-    <key>Minute</key>
-    <integer>0</integer>      <!-- 改为你想要的分钟（0-59）-->
-</dict>
-```
-
-修改后需要重新加载：
-
-```bash
-launchctl unload ~/Library/LaunchAgents/com.user.bilisummary.plist
-launchctl load ~/Library/LaunchAgents/com.user.bilisummary.plist
-```
-
-### macOS - 使用 crontab（备选）
-
-如果不想用 LaunchAgent，也可以用 crontab：
-
-```bash
-crontab -e
-```
-
-添加以下行（每天 23:00 运行）：
-
-```cron
-0 23 * * * cd /Users/moca/Work/Python/Blisummary && source .venv/bin/activate && python daily_summary.py >> /tmp/bilisummary.log 2>&1
-```
-
-### Windows - 使用任务计划程序
-
-1. 打开「任务计划程序」
-2. 创建基本任务
-3. 设置触发器：每天 23:00
-4. 设置操作：启动程序
-   - 程序：`C:\path\to\your\folder\.venv\Scripts\python.exe`
-   - 参数：`daily_summary.py`
-   - 起始位置：`C:\path\to\your\folder`
-
----
-
-## 📄 生成的文件结构
-
-```
-bilibili/
-├── 2026-03-10-B站总结.md         # 本周日报（周结束后自动归档）
-├── 2026-03-11-B站总结.md
-├── .stats_2026-03-10.json        # 统计数据缓存（供周总结读取）
-├── .stats_2026-03-11.json
-└── 周总结/
-    └── W10(2026.3.4-3.8)/
-        ├── 2026-03-04-B站总结.md # 已归档的日报
-        ├── 2026-03-05-B站总结.md
-        └── 2026-W10-周总结.md    # 周总结文件
-```
-
-### 总结文件内容
-
-**每日总结（`daily_summary.py`）**
-- **Frontmatter** - 包含日期、标签、统计数据（支持 Dataview）
-- **目标追踪** - 视频数量、时长、深度观看目标完成情况
-- **与昨日对比** - 各项指标变化趋势
-- **基础统计** - 观看视频数、时长、完成度等
-- **视频分类统计** - 长/中/短视频分布和质量评分
-- **时间热力图** - 按小时统计的观看分布
-- **精华内容** - 最佳长视频、短视频推荐
-- **UP主推荐** - 今日观看时长最多的UP主
-- **TOP10 详情** - 观看时长前10的视频
-- **AI 总结** - Claude 生成的智能分析
-- **反思日记** - 预留的反思模板
-- **Dataview 查询** - 本周、月度统计查询模板
-
-**每周总结（`weekly_summary.py`）**
-- **周汇总数据** - 总时长、视频数、深度观看、周均分
-- **日均对比表** - 每天数据一览及健康状态
-- **数据对标** - 与健康基准的差距分析
-- **AI 总结** - Claude 生成的周分析
-- **问题分析** - 自动检测并按严重程度（🔴🟡）分级
-- **改进建议** - 紧急/中期/长期三层行动建议
-- **下周目标** - 自动生成下周行动计划
-
----
-
-## 🔧 自定义配置
-
-### 修改每日目标值
-
-编辑 `daily_summary.py` 中的 `generate_goal_tracking` 函数：
-
-```python
-video_goal = 30       # 每日最大视频数
-time_goal = 3 * 3600  # 每日最大时长（秒）
-deep_goal = 2         # 每日最少深度观看数
-```
-
-### 修改每周健康基准
-
-编辑 `weekly_summary.py` 顶部的 `HEALTH` 字典：
-
-```python
-HEALTH = {
-    "daily_time_sec":   2 * 3600,  # 每日时长上限（秒）
-    "daily_videos":     30,         # 每日视频数上限
-    "deep_watch_ratio": 0.30,       # 深度观看占比目标
-    "fragment_ratio":   0.50,       # 碎片视频占比上限
-    "weekly_score":     70,         # 周评分目标
-    "avg_completion":   40.0,       # 平均完成度目标 %
-}
-```
-
-### 修改获取页数
-
-在 `main` 函数中修改 `pages` 参数（每页 30 条）：
-
-```python
-history = get_bilibili_history(cookie, pages=8)  # 获取 8 页 = 240 条
-```
-
-### 修改视频分类标准
-
-编辑 `classify_videos` 函数：
-
-```python
-if duration >= 600:    # 长视频 >= 10分钟
-    long_videos.append(item)
-elif duration >= 180:  # 中视频 >= 3分钟
-    medium_videos.append(item)
-else:                  # 短视频 < 3分钟
-    short_videos.append(item)
-```
-
----
-
-## ❓ 常见问题
-
-### Q: 提示「未能从浏览器获取 B站 Cookie」
-
-**原因：** 浏览器未登录 B站，或脚本没有权限访问浏览器 Cookie
-
-**解决：**
-1. 确认已在 Chrome / Safari / Firefox 中登录 B站
-2. macOS 系统设置 → 隐私与安全性 → 完全磁盘访问权限，添加终端或 Python
-
-### Q: 提示「请求失败」
-
-**原因：** 网络问题或 B站 API 变更
-
-**解决：**
-1. 检查网络连接
-2. 确认 Cookie 有效
-3. 稍后重试
-
-### Q: AI 总结为空
-
-**原因：** Claude Code CLI 未安装或未登录
-
-**解决：**
-```bash
+pip install requests browser-cookie3
 npm install -g @anthropic-ai/claude-code
 claude login
 ```
 
-### Q: crontab 任务不执行
-
-**macOS 解决方案：**
-1. 检查 cron 服务：`sudo launchctl list | grep cron`
-2. 授予完全磁盘访问权限：
-   - 系统设置 → 隐私与安全性 → 完全磁盘访问权限
-   - 添加 `/usr/sbin/cron`
-
-### Q: 中文显示乱码
-
-**解决：** 确保终端和文件使用 UTF-8 编码
+### 日报
 
 ```bash
-export LANG=zh_CN.UTF-8
+python daily_summary.py
+python daily_summary.py --date 2026-04-01
+```
+
+### 周报
+
+```bash
+python weekly_summary.py
+python weekly_summary.py 0
+python weekly_summary.py 2026-W10
 ```
 
 ---
 
-## 📊 Obsidian Dataview 查询示例
+## 6. 配置入口
 
-在 Obsidian 中安装 Dataview 插件后，可以使用以下查询：
+主要配置集中在 [blisummary/config.py](blisummary/config.py)。
 
-### 本周观看汇总
+常见修改点：
 
-```dataview
-TABLE WITHOUT ID
-  file.link as "日期",
-  video_count as "视频数",
-  round(total_time / 3600, 1) as "小时",
-  score as "得分"
-FROM #bilibili
-WHERE week_number = this.week_number
-SORT date DESC
+- `SUMMARY_FOLDER`：输出目录
+- `CLAUDE_CLI`：Claude CLI 路径
+- `summary_markdown_path()` / `stats_json_path()`：日报文件命名规则
+- `weekly_archive_folder()` / `weekly_summary_path()`：周报归档与文件命名规则
+
+其他规则入口：
+
+- 周报健康阈值： [blisummary/weekly/analytics.py](blisummary/weekly/analytics.py) 的 `HEALTH`
+- 日报目标规则： [blisummary/daily/render.py](blisummary/daily/render.py) 的 `generate_goal_tracking()`
+- 视频分类标准： [blisummary/daily/metrics.py](blisummary/daily/metrics.py) 的 `classify_videos()`
+
+---
+
+## 7. 输出结构
+
+```text
+04_Bilibili/
+├── 2026-04-13-B站总结.md
+├── .stats_2026-04-13.json
+└── 周总结/
+    └── W15(2026.4.6-4.12)/
+        ├── 2026-04-07-B站总结.md
+        └── 2026-W15-周总结.md
 ```
 
-### 碎片化警告记录
-
-```dataview
-TABLE WITHOUT ID
-  file.link as "日期",
-  video_count as "视频数",
-  behavior_metrics.avg_completion + "%" as "完成度"
-FROM #bilibili AND #碎片化警告
-SORT date DESC
-LIMIT 5
-```
+- `*.md`：人读文档
+- `.stats_*.json`：周报依赖的日报缓存
+- `周总结/Wxx(...)`：已结束周的归档目录
 
 ---
 
-## 📝 更新日志
+## 8. 已处理的关键兼容点
 
-### v1.4.0
-- **修复** 分P视频时长统计不完整：采用增量（delta）法，将上次观看位置存入 `.stats_*.json`，次日对比得出"今天新看了哪几P"，仅补全这部分时长，彻底解决之前累加法导致的重复计算问题
-
-### v1.3.0
-- **新增** `--date` / `-d` 参数，支持生成指定日期的总结（距今越远自动增加拉取页数）
-- **修复** 分P/合集视频数据读取错误：改用 `page.duration`（当前P时长）替代顶层总时长，完成度和长/中/短分类不再偏低；标题自动附加 `P2`、`P3` 等编号
-- **修复** 周总结后周一重复生成周日总结：新增对 `.stats_*.json` 文件的存在性检查，MD 文件被归档移走时仍能正确判断已完成
-- **修复** 周一缺少周日对比数据：`.stats_*.json` 丢失时自动从 MD 的 YAML frontmatter 中恢复统计数据
-
-### v1.2.0
-- 新增 `weekly_summary.py` 每周总结生成器
-- 支持自动识别周边界、问题检测、分层建议、文件归档
-
-### v1.1.0
-- 改用 `browser-cookie3` 自动从浏览器读取 Cookie，无需手动维护 `cookie.txt`
-- 支持 Chrome、Safari、Firefox 自动检测
-
-### v1.0.0
-- 初始版本
-- 基础统计和分类功能
-- AI 总结集成
-- Obsidian 适配
+- **SSL 证书异常**：在 [blisummary/bilibili/client.py](blisummary/bilibili/client.py) 中对 `SSLError` 做 `trust_env=False` fallback
+- **`--date` 模式历史不足**：按目标日期动态扩大抓取范围，直到覆盖目标日
+- **`.stats` 丢失恢复**：优先读取 JSON，缺失时从日报 frontmatter 尽量恢复核心字段
 
 ---
 
-## 📜 许可证
+## 9. 维护建议
 
-MIT License
+推荐优先顺序：
 
----
-
-## 🤝 贡献
-
-欢迎提交 Issue 和 Pull Request！
+1. 给 [blisummary/daily/metrics.py](blisummary/daily/metrics.py)、[blisummary/weekly/analytics.py](blisummary/weekly/analytics.py)、[blisummary/storage/stats_store.py](blisummary/storage/stats_store.py) 补最小测试
+2. 继续收紧 `TypedDict` 与函数返回类型
+3. 逐步抽离 prompt 模板和更多阈值配置
+4. 再考虑月报、趋势分析、CSV/JSON 导出
